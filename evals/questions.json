@@ -1,0 +1,50 @@
+[
+  {
+    "id": 1,
+    "question": "How much did I spend on Swiggy?"
+  },
+  {
+    "id": 2,
+    "question": "How much did I spend on Uber?"
+  },
+  {
+    "id": 3,
+    "question": "Which category had the highest spend?"
+  },
+  {
+    "id": 4,
+    "question": "Show my spending by category."
+  },
+  {
+    "id": 5,
+    "question": "What are my recurring subscriptions?"
+  },
+  {
+    "id": 6,
+    "question": "What was the return of fund HDFC001 in 2024?"
+  },
+  {
+    "id": 7,
+    "question": "What is the return of holding 1?"
+  },
+  {
+    "id": 8,
+    "question": "How much did I spend on Starbucks?"
+  },
+  {
+    "id": 9,
+    "question": "Which merchant has the highest spend?"
+  },
+  {
+    "id": 10,
+    "question": "Show all Swiggy transactions."
+  },
+  {
+    "id": 11,
+    "question": "What is my total food spend?"
+  },
+  {
+    "id": 12,
+    "question": "List recurring merchants."
+  }
+]

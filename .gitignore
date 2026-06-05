@@ -8,3 +8,7 @@ dist
 *.db-* 
 .netlify 
 .vercel 
+
+logs
+coverage
+evals/report.json
