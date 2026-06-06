@@ -9,6 +9,7 @@ dist
 .netlify 
 .vercel 
 
+*.log
 logs
 coverage
 evals/report.json

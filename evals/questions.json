@@ -1,50 +1,92 @@
 [
   {
     "id": 1,
-    "question": "How much did I spend on Swiggy?"
+    "category": "total_spend",
+    "question": "What was my total spending in January 2025?",
+    "expects": "A currency figure and mention of January or 2025"
   },
   {
     "id": 2,
-    "question": "How much did I spend on Uber?"
+    "category": "transfers_excluded",
+    "question": "Ignore transfers. What was my total actual spending in Q1 2025?",
+    "expects": "A currency figure"
   },
   {
     "id": 3,
-    "question": "Which category had the highest spend?"
+    "category": "refunds",
+    "question": "How much did I spend on food in March 2025 after refunds?",
+    "expects": "A currency figure, mentions food and March"
   },
   {
     "id": 4,
-    "question": "Show my spending by category."
+    "category": "merchant_alias",
+    "question": "How much did I spend on Swiggy, including Swiggy Instamart and all Swiggy orders?",
+    "expects": "A currency figure, mentions Swiggy"
   },
   {
     "id": 5,
-    "question": "What are my recurring subscriptions?"
+    "category": "single_lookup",
+    "question": "What was my single biggest expense?",
+    "expects": "A currency figure"
   },
   {
     "id": 6,
-    "question": "What was the return of fund HDFC001 in 2024?"
+    "category": "month_over_month",
+    "question": "Compare my food and travel spending month by month. Which grew faster?",
+    "expects": "Mentions food and travel, uses words like grew / faster / higher / increased"
   },
   {
     "id": 7,
-    "question": "What is the return of holding 1?"
+    "category": "top_merchants",
+    "question": "What were my top 5 merchants by net spend between January and March 2025?",
+    "expects": "A list of merchants with currency figures"
   },
   {
     "id": 8,
-    "question": "How much did I spend on Starbucks?"
+    "category": "recurring",
+    "question": "Which transactions look like recurring subscriptions?",
+    "expects": "Merchant names or a no-recurring message"
   },
   {
     "id": 9,
-    "question": "Which merchant has the highest spend?"
+    "category": "no_data",
+    "question": "Do I have any data for rent in April 2025?",
+    "expects": "Honest no-data response — no invented figure"
   },
   {
     "id": 10,
-    "question": "Show all Swiggy transactions."
+    "category": "fund_return",
+    "question": "List all funds and their return from 2024-01-01 to 2025-01-01.",
+    "expects": "Percentage figures for multiple funds"
   },
   {
     "id": 11,
-    "question": "What is my total food spend?"
+    "category": "holding_return",
+    "question": "What is my realised return on my best performing holding?",
+    "expects": "A percentage figure, mentions return or gain"
   },
   {
     "id": 12,
-    "question": "List recurring merchants."
+    "category": "portfolio_summary",
+    "question": "What is my portfolio worth today, and how much have I made on it in absolute INR?",
+    "expects": "Currency figures for value and gain"
+  },
+  {
+    "id": 13,
+    "category": "fund_ranking",
+    "question": "Rank all funds by one-year return between 2024-01-01 and 2025-01-01, and show the spread between best and worst.",
+    "expects": "Ranked list with percentages and a spread figure"
+  },
+  {
+    "id": 14,
+    "category": "category_breakdown",
+    "question": "What was my total spending by category in February 2025, excluding transfers?",
+    "expects": "Multiple categories with currency figures"
+  },
+  {
+    "id": 15,
+    "category": "portfolio_ranking",
+    "question": "Of the funds I own, which gave me the best realised return?",
+    "expects": "A fund name with a percentage return"
   }
 ]

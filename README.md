@@ -4,13 +4,13 @@ AI-powered finance research agent built using Mastra, PostgreSQL, Express, and G
 
 Tara answers natural-language questions about:
 
-* Transaction spending
-* Merchant analytics
-* Category analytics
-* Recurring subscriptions
-* Portfolio holdings
-* Fund performance
-* Asset allocation
+- Transaction spending
+- Merchant analytics
+- Category analytics
+- Recurring subscriptions
+- Portfolio holdings
+- Fund performance
+- Asset allocation
 
 ---
 
@@ -26,25 +26,25 @@ Tara uses an LLM for intent understanding and deterministic analytics tools for 
 
 ## Transaction Analytics
 
-* Merchant spend analysis
-* Category spend analysis
-* Transaction history lookup
-* Spend summaries
-* Recurring subscription detection
+- Merchant spend analysis
+- Category spend analysis
+- Transaction history lookup
+- Spend summaries
+- Recurring subscription detection
 
 ## Portfolio Analytics
 
-* Holdings analysis
-* Portfolio summary
-* Asset allocation
-* Fund performance lookup
+- Holdings analysis
+- Portfolio summary
+- Asset allocation
+- Fund performance lookup
 
 ## AI Agent
 
-* Natural language interface
-* Tool-based reasoning
-* Structured financial analytics
-* Multi-dataset support
+- Natural language interface
+- Tool-based reasoning
+- Structured financial analytics
+- Multi-dataset support
 
 ---
 
@@ -54,22 +54,22 @@ Tara uses an LLM for intent understanding and deterministic analytics tools for 
 
 The system stores:
 
-* Transactions
-* Funds
-* Fund NAV history
-* Holdings
+- Transactions
+- Funds
+- Fund NAV history
+- Holdings
 
 ---
 
 # Technology Stack
 
-* TypeScript
-* Node.js
-* Express
-* PostgreSQL
-* Mastra
-* Groq
-* Zod
+- TypeScript
+- Node.js
+- Express
+- PostgreSQL
+- Mastra
+- Groq
+- Zod
 
 ---
 
@@ -112,32 +112,39 @@ npm install
 
 ## 2. Configure Environment
 
-Create `.env`
+Create a `.env` file in the repo root:
 
 ```env
-DATABASE_URL=postgres://postgres:your_password@localhost:5432/provue_tara
+# Required
+DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/DB_NAME
+GROQ_API_KEY=your_groq_key
 
-GROQ_API_KEY=your_api_key
-
+# Optional
 DATA_DIR=./data/sample_a
+PORT=3000
 ```
 
-## 3. Create Database
+## 3. Create Database (optional)
+
+If you don’t already have Postgres set up, create the database referenced in `DATABASE_URL`.
+
+Example:
 
 ```sql
 CREATE DATABASE provue_tara;
 ```
 
-## 4. Run Migrations
+## 4. Ingest Dataset
+
+Ingest one of the provided snapshots (or your own snapshot folder):
 
 ```bash
-npm run db:migrate
-```
-
-## 5. Ingest Dataset
-
-```bash
+# Default: DATA_DIR=./data/sample_a
 npx tsx scripts/ingest.ts
+
+# Or set DATA_DIR to another folder, e.g.
+# set DATA_DIR=./data/sample_b
+# npx tsx scripts/ingest.ts
 ```
 
 ---
@@ -188,10 +195,10 @@ The CLI sends questions directly to the `/ask` endpoint and provides a simple co
 
 Example questions:
 
-* How much did I spend on Swiggy?
-* What is my total food spend?
-* Which category had the highest spend?
-* What are my recurring subscriptions?
+- How much did I spend on Swiggy?
+- What is my total food spend?
+- Which category had the highest spend?
+- What are my recurring subscriptions?
 
 ---
 
@@ -278,11 +285,11 @@ eval-report.json
 
 The evaluation suite validates:
 
-* Merchant spending
-* Category analysis
-* Recurring subscriptions
-* Portfolio analytics
-* Fund performance
+- Merchant spending
+- Category analysis
+- Recurring subscriptions
+- Portfolio analytics
+- Fund performance
 
 ---
 
@@ -292,11 +299,11 @@ The evaluation suite validates:
 
 Logs include:
 
-* User questions
-* Tool selection
-* Tool outputs
-* Errors
-* Evaluation runs
+- User questions
+- Tool selection
+- Tool outputs
+- Errors
+- Evaluation runs
 
 This helps with debugging and reproducibility.
 
