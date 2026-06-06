@@ -7,10 +7,10 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "dotenv -e .env -- tsx src/server.ts",
     "build": "mastra build",
-    "start": "node dist/server.js",
+    "start": "node .mastra/output/index.mjs",
     "server": "tsx src/server.ts",
     "evals": "tsx evals/run-evals.ts",
-     "chat": "tsx scripts/chat.ts"
+    "chat": "tsx scripts/chat.ts"
   },
   "keywords": [],
   "author": "",
