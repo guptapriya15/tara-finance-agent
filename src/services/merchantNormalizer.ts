@@ -1,23 +1,48 @@
+const STOP_WORDS = new Set([
+  "upi",
+  "neft",
+  "imps",
+  "rtgs",
+  "txn",
+  "payment",
+  "pay",
+  "paid",
+  "transfer",
+  "to",
+  "from",
+  "ref",
+  "bank",
+  "credit",
+  "debit",
+]);
+
 export function normalizeMerchant(
   merchant: string
 ): string {
-  let m = merchant.toLowerCase();
-
-  // Remove special characters
-  m = m.replace(/[^a-z0-9 ]/g, " ");
-
-  // Remove banking/payment prefixes
-  m = m.replace(/\b(upi|neft|imps)\b/g, "");
-
-  // Normalize whitespace
-  m = m.replace(/\s+/g, " ").trim();
-
-  if (!m) {
-    return "";
+  if (!merchant) {
+    return "unknown";
   }
 
-  // Use first token as merchant family
-  const tokens = m.split(" ").filter(Boolean);
+  const cleaned = merchant
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const tokens = cleaned
+    .split(" ")
+    .filter(Boolean)
+    .filter((token) => {
+      return (
+        token.length > 2 &&
+        !STOP_WORDS.has(token) &&
+        !/^\d+$/.test(token)
+      );
+    });
+
+  if (tokens.length === 0) {
+    return cleaned || "unknown";
+  }
 
   return tokens[0];
 }

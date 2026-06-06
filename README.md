@@ -1,30 +1,311 @@
-# tara-finance-agent
+# Tara Finance Research Agent
 
-Welcome to your new [Mastra](https://mastra.ai/) project! We're excited to see what you'll build.
+AI-powered finance research agent built using Mastra, PostgreSQL, Express, and Groq.
 
-## Getting Started
+Tara answers natural-language questions about:
 
-Start the development server:
+* Transaction spending
+* Merchant analytics
+* Category analytics
+* Recurring subscriptions
+* Portfolio holdings
+* Fund performance
+* Asset allocation
 
-```shell
-npm run dev
+---
+
+# Architecture
+
+![Architecture](docs/screenshots/architecture.png)
+
+Tara uses an LLM for intent understanding and deterministic analytics tools for financial calculations.
+
+---
+
+# Features
+
+## Transaction Analytics
+
+* Merchant spend analysis
+* Category spend analysis
+* Transaction history lookup
+* Spend summaries
+* Recurring subscription detection
+
+## Portfolio Analytics
+
+* Holdings analysis
+* Portfolio summary
+* Asset allocation
+* Fund performance lookup
+
+## AI Agent
+
+* Natural language interface
+* Tool-based reasoning
+* Structured financial analytics
+* Multi-dataset support
+
+---
+
+# Database Schema
+
+![Database Schema](docs/screenshots/database-schema.png)
+
+The system stores:
+
+* Transactions
+* Funds
+* Fund NAV history
+* Holdings
+
+---
+
+# Technology Stack
+
+* TypeScript
+* Node.js
+* Express
+* PostgreSQL
+* Mastra
+* Groq
+* Zod
+
+---
+
+# Project Structure
+
+```text
+.
+├── src/
+│   ├── agents/
+│   ├── db/
+│   ├── services/
+│   ├── tools/
+│   └── server.ts
+│
+├── scripts/
+│   ├── ingest.ts
+│   └── chat.ts
+│
+├── data/
+│   └── sample_a/
+│
+├── docs/
+│   └── screenshots/
+│
+├── README.md
+├── DESIGN.md
+├── eval-report.json
+└── .env.example
 ```
 
-Open [http://localhost:4111](http://localhost:4111) in your browser to access [Mastra Studio](https://mastra.ai/docs/studio/overview). It provides an interactive UI for building and testing your agents, along with a REST API that exposes your Mastra application as a local service. This lets you start building without worrying about integration right away.
+---
 
-You can start editing files inside the `src/mastra` directory. The development server will automatically reload whenever you make changes.
+# Setup
 
-## Learn more
+## 1. Install
 
-To learn more about Mastra, visit our [documentation](https://mastra.ai/docs/). Your bootstrapped project includes example code for [agents](https://mastra.ai/docs/agents/overview), [tools](https://mastra.ai/docs/agents/using-tools), [workflows](https://mastra.ai/docs/workflows/overview), [scorers](https://mastra.ai/docs/evals/overview), and [observability](https://mastra.ai/docs/observability/overview).
+```bash
+npm install
+```
 
-If you're new to AI agents, check out our [course](https://mastra.ai/learn) and [YouTube videos](https://youtube.com/@mastra-ai). You can also join our [Discord](https://discord.gg/BTYqqHKUrf) community to get help and share your projects.
+## 2. Configure Environment
 
-## Deploy to the Mastra platform
+Create `.env`
 
-The [Mastra platform](https://projects.mastra.ai) provides two products for deploying and managing AI applications built with the Mastra framework:
+```env
+DATABASE_URL=postgres://postgres:your_password@localhost:5432/provue_tara
 
-- **Studio**: A hosted visual environment for testing agents, running workflows, and inspecting traces
-- **Server**: A production deployment target that runs your Mastra application as an API server
+GROQ_API_KEY=your_api_key
 
-Learn more in the [Mastra platform documentation](https://mastra.ai/docs/mastra-platform/overview).
+DATA_DIR=./data/sample_a
+```
+
+## 3. Create Database
+
+```sql
+CREATE DATABASE provue_tara;
+```
+
+## 4. Run Migrations
+
+```bash
+npm run db:migrate
+```
+
+## 5. Ingest Dataset
+
+```bash
+npx tsx scripts/ingest.ts
+```
+
+---
+
+# Dataset Ingestion
+
+![Dataset Ingestion](docs/screenshots/ingestion.png)
+
+The ingestion pipeline:
+
+1. Loads transactions
+2. Normalizes merchants
+3. Loads fund NAV history
+4. Loads holdings
+5. Stores structured data in PostgreSQL
+
+---
+
+# Running the Server
+
+```bash
+npm run server
+```
+
+Server:
+
+```text
+Server running on port 3000
+```
+
+---
+
+# Interactive CLI Demo
+
+Start:
+
+```bash
+npm run chat
+```
+
+The CLI sends questions directly to the `/ask` endpoint and provides a simple conversational interface.
+
+---
+
+# Example Conversation
+
+![CLI Demo](docs/screenshots/api-query.png)
+
+Example questions:
+
+* How much did I spend on Swiggy?
+* What is my total food spend?
+* Which category had the highest spend?
+* What are my recurring subscriptions?
+
+---
+
+# API
+
+## Endpoint
+
+```http
+POST /ask
+```
+
+## Request
+
+```json
+{
+  "question": "How much did I spend on Swiggy?"
+}
+```
+
+## Response
+
+```json
+{
+  "answer": "You spent ₹49,311.02 on Swiggy."
+}
+```
+
+---
+
+# Running Against New Datasets
+
+The ingestion pipeline is dataset agnostic.
+
+Update:
+
+```env
+DATA_DIR=./data/new_dataset
+```
+
+Expected structure:
+
+```text
+new_dataset/
+├── transactions.json
+├── funds.json
+└── holdings.json
+```
+
+Re-ingest:
+
+```bash
+npx tsx scripts/ingest.ts
+```
+
+Start server:
+
+```bash
+npm run server
+```
+
+All queries will now operate on the newly loaded dataset.
+
+---
+
+# Evaluation
+
+Run:
+
+```bash
+npm run eval
+```
+
+Results are generated in:
+
+```text
+eval-report.json
+```
+
+---
+
+# Evaluation Results
+
+![Evaluation Results](docs/screenshots/evaluation-results.png)
+
+The evaluation suite validates:
+
+* Merchant spending
+* Category analysis
+* Recurring subscriptions
+* Portfolio analytics
+* Fund performance
+
+---
+
+# Logs & Observability
+
+![Logs](docs/screenshots/logs.png)
+
+Logs include:
+
+* User questions
+* Tool selection
+* Tool outputs
+* Errors
+* Evaluation runs
+
+This helps with debugging and reproducibility.
+
+---
+
+# Design Document
+
+Additional implementation details are available in:
+
+```text
+DESIGN.md
+```

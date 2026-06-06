@@ -12,3 +12,10 @@ dist
 logs
 coverage
 evals/report.json
+
+
+src/mastra/public/*.db
+src/mastra/public/*.db-shm
+src/mastra/public/*.db-wal
+src/mastra/public/*.duckdb
+src/mastra/public/*.duckdb.wal

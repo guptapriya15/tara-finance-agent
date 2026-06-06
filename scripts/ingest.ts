@@ -1,11 +1,10 @@
+import "dotenv/config";
 import fs from "fs";
 import path from "path";
-import dotenv from "dotenv";
 
 import { db } from "../src/db/client";
 import { normalizeMerchant } from "../src/services/merchantNormalizer";
 
-dotenv.config();
 
 const DATA_DIR =
   process.env.DATA_DIR || "./data/sample_a";
