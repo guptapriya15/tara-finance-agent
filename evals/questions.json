@@ -1,92 +1,220 @@
 [
   {
     "id": 1,
-    "category": "total_spend",
-    "question": "What was my total spending in January 2025?",
-    "expects": "A currency figure and mention of January or 2025"
+    "question": "How much did I spend on Swiggy in total?",
+    "tags": ["merchant", "alias", "aggregate"],
+    "expect": {
+      "type": "currency_inr",
+      "description": "A positive INR amount for total Swiggy spend",
+      "mustContain": ["swiggy"],
+      "mustNotContain": ["0.00", "unable to"]
+    }
   },
   {
     "id": 2,
-    "category": "transfers_excluded",
-    "question": "Ignore transfers. What was my total actual spending in Q1 2025?",
-    "expects": "A currency figure"
+    "question": "How much did I spend on Uber?",
+    "tags": ["merchant", "aggregate"],
+    "expect": {
+      "type": "currency_or_no_data",
+      "description": "Amount if Uber exists, or honest no-data — must not crash",
+      "mustNotContain": ["I don't know", "unable to determine"]
+    }
   },
   {
     "id": 3,
-    "category": "refunds",
-    "question": "How much did I spend on food in March 2025 after refunds?",
-    "expects": "A currency figure, mentions food and March"
+    "question": "Which category had the highest spend?",
+    "tags": ["category", "ranking"],
+    "expect": {
+      "type": "category_name",
+      "description": "A category name with associated spend amount",
+      "mustContainPattern": "\\d+",
+      "mustNotContain": ["I don't know", "unable to"]
+    }
   },
   {
     "id": 4,
-    "category": "merchant_alias",
-    "question": "How much did I spend on Swiggy, including Swiggy Instamart and all Swiggy orders?",
-    "expects": "A currency figure, mentions Swiggy"
+    "question": "Show my spending by category.",
+    "tags": ["category", "breakdown"],
+    "expect": {
+      "type": "list",
+      "description": "Multiple categories listed with amounts",
+      "mustContainPattern": "\\d+",
+      "mustNotContain": ["no data", "unable to"]
+    }
   },
   {
     "id": 5,
-    "category": "single_lookup",
-    "question": "What was my single biggest expense?",
-    "expects": "A currency figure"
+    "question": "What are my recurring subscriptions?",
+    "tags": ["recurring", "subscription"],
+    "expect": {
+      "type": "list_or_none",
+      "description": "Recurring merchants or honest no-data message",
+      "mustNotContain": ["I don't know", "unable to determine"]
+    }
   },
   {
     "id": 6,
-    "category": "month_over_month",
-    "question": "Compare my food and travel spending month by month. Which grew faster?",
-    "expects": "Mentions food and travel, uses words like grew / faster / higher / increased"
+    "question": "List all available funds and tell me which one had the best return in 2024.",
+    "tags": ["fund", "period_return", "ranking"],
+    "expect": {
+      "type": "fund_name_and_percentage",
+      "description": "Fund names listed, best performer identified with a % return",
+      "mustContainPattern": "[\\d\\.]+%|percent",
+      "mustNotContain": ["I don't know", "unable to"]
+    }
   },
   {
     "id": 7,
-    "category": "top_merchants",
-    "question": "What were my top 5 merchants by net spend between January and March 2025?",
-    "expects": "A list of merchants with currency figures"
+    "question": "What is my realised return on my largest holding?",
+    "tags": ["holding", "realised_return"],
+    "expect": {
+      "type": "percentage_and_currency",
+      "description": "Percentage return plus absolute gain/loss in INR",
+      "mustContainPattern": "[\\d\\.]+%",
+      "mustNotContain": ["I don't know", "unable to"]
+    }
   },
   {
     "id": 8,
-    "category": "recurring",
-    "question": "Which transactions look like recurring subscriptions?",
-    "expects": "Merchant names or a no-recurring message"
+    "question": "How much did I spend on Starbucks?",
+    "tags": ["merchant", "no_data_possible"],
+    "expect": {
+      "type": "currency_or_no_data",
+      "description": "Amount if Starbucks exists, or honest no-data — must not invent a number",
+      "mustNotContain": ["I don't know"]
+    }
   },
   {
     "id": 9,
-    "category": "no_data",
-    "question": "Do I have any data for rent in April 2025?",
-    "expects": "Honest no-data response — no invented figure"
+    "question": "Which merchant has the highest total spend?",
+    "tags": ["merchant", "ranking"],
+    "expect": {
+      "type": "merchant_and_amount",
+      "description": "Top merchant name and INR amount",
+      "mustContainPattern": "\\d+",
+      "mustNotContain": ["I don't know", "unable to"]
+    }
   },
   {
     "id": 10,
-    "category": "fund_return",
-    "question": "List all funds and their return from 2024-01-01 to 2025-01-01.",
-    "expects": "Percentage figures for multiple funds"
+    "question": "Show me the last 5 Swiggy transactions.",
+    "tags": ["merchant", "raw_rows"],
+    "expect": {
+      "type": "list",
+      "description": "Up to 5 Swiggy transactions with dates and amounts",
+      "mustContain": ["swiggy"],
+      "mustContainPattern": "\\d{4}-\\d{2}-\\d{2}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec",
+      "mustNotContain": ["no data", "not found"]
+    }
   },
   {
     "id": 11,
-    "category": "holding_return",
-    "question": "What is my realised return on my best performing holding?",
-    "expects": "A percentage figure, mentions return or gain"
+    "question": "What is my total food spend?",
+    "tags": ["category", "aggregate"],
+    "expect": {
+      "type": "currency_inr",
+      "description": "Total food category spend in INR",
+      "mustContainPattern": "\\d+",
+      "mustNotContain": ["I don't know"]
+    }
   },
   {
     "id": 12,
-    "category": "portfolio_summary",
-    "question": "What is my portfolio worth today, and how much have I made on it in absolute INR?",
-    "expects": "Currency figures for value and gain"
+    "question": "List all recurring merchants.",
+    "tags": ["recurring", "subscription"],
+    "expect": {
+      "type": "list_or_none",
+      "description": "Recurring merchants or honest no-data — must not hallucinate merchants",
+      "mustNotContain": ["I don't know", "unable to determine"]
+    }
   },
   {
     "id": 13,
-    "category": "fund_ranking",
-    "question": "Rank all funds by one-year return between 2024-01-01 and 2025-01-01, and show the spread between best and worst.",
-    "expects": "Ranked list with percentages and a spread figure"
+    "question": "What is my total portfolio worth today, and how much have I made on it?",
+    "tags": ["portfolio", "summary", "multi_step"],
+    "expect": {
+      "type": "percentage_and_currency",
+      "description": "Total portfolio value, cost basis, absolute gain, and return %",
+      "mustContainPattern": "[\\d,]+",
+      "mustNotContain": ["I don't know", "unable to", "no holdings"]
+    }
   },
   {
     "id": 14,
-    "category": "category_breakdown",
-    "question": "What was my total spending by category in February 2025, excluding transfers?",
-    "expects": "Multiple categories with currency figures"
+    "question": "Ignore transfers. What was my total actual spending in Q1 2025?",
+    "tags": ["transfers", "date_range", "aggregate"],
+    "expect": {
+      "type": "currency_inr",
+      "description": "Net spend Jan-Mar 2025 excluding transfers",
+      "mustContainPattern": "\\d+",
+      "mustNotContain": ["I don't know", "unable to"]
+    }
   },
   {
     "id": 15,
-    "category": "portfolio_ranking",
-    "question": "Of the funds I own, which gave me the best realised return?",
-    "expects": "A fund name with a percentage return"
+    "question": "Compare my food and travel spending month by month. Which grew faster?",
+    "tags": ["category", "comparison", "month_over_month", "multi_step"],
+    "expect": {
+      "type": "comparison",
+      "description": "Monthly breakdown of both categories plus a conclusion on which grew faster",
+      "mustContain": ["food", "travel"],
+      "mustContainPattern": "\\d+",
+      "mustNotContain": ["I don't know", "unable to"]
+    }
+  },
+  {
+    "id": 16,
+    "question": "Do I have any rent transactions?",
+    "tags": ["no_data", "edge_case"],
+    "expect": {
+      "type": "honest_no_data",
+      "description": "Either finds rent transactions or honestly says none found",
+      "mustNotContain": ["I don't know"]
+    }
+  },
+  {
+    "id": 17,
+    "question": "What was my spending in April 2025?",
+    "tags": ["no_data", "date_range", "edge_case"],
+    "expect": {
+      "type": "honest_no_data",
+      "description": "Dataset ends Mar 2025 — should honestly report no data for Apr 2025",
+      "mustContainPattern": "no |not found|no data|outside|don't have|0 transaction",
+      "mustNotContain": ["I don't know"]
+    }
+  },
+  {
+    "id": 18,
+    "question": "Rank all my holdings by realised return.",
+    "tags": ["portfolio", "ranking", "multi_step"],
+    "expect": {
+      "type": "list",
+      "description": "All holdings ranked by return %, with fund names and percentages",
+      "mustContainPattern": "[\\d\\.]+%",
+      "mustNotContain": ["I don't know", "no holdings"]
+    }
+  },
+  {
+    "id": 19,
+    "question": "How much did I spend on food in March 2025 after accounting for refunds?",
+    "tags": ["category", "refunds", "date_range"],
+    "expect": {
+      "type": "currency_inr",
+      "description": "Net food spend in Mar 2025 (SUM including negatives)",
+      "mustContainPattern": "\\d+",
+      "mustNotContain": ["I don't know", "unable to"]
+    }
+  },
+  {
+    "id": 20,
+    "question": "Which of my funds gave me the best realised return, and how does it compare to that fund's return over the same period?",
+    "tags": ["portfolio", "fund", "comparison", "multi_step"],
+    "expect": {
+      "type": "comparison",
+      "description": "Best holding identified, then same fund period return computed and compared",
+      "mustContainPattern": "[\\d\\.]+%",
+      "mustContain": ["fund", "holding"],
+      "mustNotContain": ["I don't know", "unable to"]
+    }
   }
 ]

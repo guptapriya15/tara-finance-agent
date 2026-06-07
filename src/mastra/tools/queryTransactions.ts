@@ -5,16 +5,9 @@ import { db } from "../../db/client.js";
 /**
  * query_transactions
  *
- * One tool to handle all transaction-level questions:
- * - total spend, net spend, category breakdowns
- * - merchant lookups (fuzzy, via ILIKE on merchant_canonical)
- * - date filtering
- * - month-over-month aggregates
- * - top-N merchants / categories
- * - refund-aware (amount > 0 by default; net = SUM(amount) handles negatives)
- * - transfer exclusion (category != 'transfer' by default)
- * - subscription / recurring detection
- * - raw transaction rows for inspection
+ * One tool to handle all transaction-level questions.
+ * Boolean and integer fields use z.coerce so the LLM can pass
+ * "true"/"false" strings or "10" without causing validation errors.
  *
  * Tables read: transactions
  */
@@ -26,14 +19,14 @@ Query the transactions database. Use for ANY question about spending,
 merchants, categories, refunds, or recurring subscriptions.
 
 aggregate options:
-  "none"     → return raw rows (use for "show me", "list", "search")
-  "total"    → SUM(amount) over the filter window — net spend after refunds
-  "by_month" → monthly spend grouped by month
-  "by_category" → spend grouped by category
-  "by_merchant" → spend grouped by merchant_canonical
+  "none"          → return raw rows (use for "show me", "list", "search")
+  "total"         → SUM(amount) over the filter window — net spend after refunds
+  "by_month"      → monthly spend grouped by month
+  "by_category"   → spend grouped by category
+  "by_merchant"   → spend grouped by merchant_canonical
   "top_merchants" → top-N merchants by net spend
-  "top_categories" → top-N categories by net spend
-  "recurring" → detect merchants with recurring transaction patterns
+  "top_categories"→ top-N categories by net spend
+  "recurring"     → detect merchants with recurring transaction patterns
 
 Set includeTransfers=true only when the user explicitly asks about transfers.
 Set includeRefunds=true only when the user asks specifically about refunds/reversals.
@@ -48,11 +41,12 @@ For net-spend questions, use aggregate="total" — SUM handles negatives automat
     aggregate: z
       .enum(["none", "total", "by_month", "by_category", "by_merchant", "top_merchants", "top_categories", "recurring"])
       .default("none"),
-    limit: z.number().int().min(1).max(100).optional().default(10)
+    limit: z.coerce.number().int().min(1).max(100).optional().default(10)
       .describe("Used for top_merchants / top_categories / none (row limit)"),
-    includeTransfers: z.boolean().optional().default(false),
-    includeRefunds:   z.boolean().optional().default(false)
-      .describe("If false (default), only amount>0 rows; if true, all amounts"),
+    includeTransfers: z.coerce.boolean().optional().default(false)
+      .describe("Include transfer transactions. Default false."),
+    includeRefunds: z.coerce.boolean().optional().default(false)
+      .describe("If false (default), only amount>0 rows; if true, all amounts including negatives"),
   }),
 
   execute: async (input) => {
@@ -102,10 +96,10 @@ For net-spend questions, use aggregate="total" — SUM handles negatives automat
       case "total": {
         const r = await db.query(
           `SELECT
-             ROUND(SUM(amount), 2)                                AS net_spend,
-             ROUND(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 2) AS gross_spend,
-             ROUND(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END), 2) AS total_refunds,
-             COUNT(*)                                             AS transaction_count
+             ROUND(SUM(amount), 2)                                                  AS net_spend,
+             ROUND(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 2)            AS gross_spend,
+             ROUND(SUM(CASE WHEN amount < 0 THEN amount ELSE 0 END), 2)            AS total_refunds,
+             COUNT(*)                                                               AS transaction_count
            FROM transactions ${WHERE}`,
           params
         );
@@ -196,9 +190,6 @@ For net-spend questions, use aggregate="total" — SUM handles negatives automat
       }
 
       case "recurring": {
-        // Pull all merchants + dates, then apply recurring detector in JS
-        // (SQL-only recurring detection requires window functions that are
-        //  harder to generalise; JS gives us full control over the algorithm)
         const r = await db.query(
           `SELECT
              merchant_canonical,
@@ -211,7 +202,6 @@ For net-spend questions, use aggregate="total" — SUM handles negatives automat
 
         if (!r.rows.length) return { found: false, message: "No transactions found." };
 
-        // group dates by merchant
         const groups = new Map<string, { dates: Date[]; amounts: number[] }>();
         for (const row of r.rows) {
           if (!groups.has(row.merchant_canonical)) {

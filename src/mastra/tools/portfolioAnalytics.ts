@@ -6,31 +6,8 @@ import { db } from "../../db/client.js";
  * portfolio_analytics
  *
  * All fund and holdings questions go through this one tool.
- *
- * mode="fund_return"
- *   → period return for a named fund between two dates
- *   Formula: (end_nav - start_nav) / start_nav * 100
- *   Uses the closest available NAV on or before each date.
- *
- * mode="fund_return_ranking"
- *   → rank ALL funds by period return between two dates
- *
- * mode="holding_return"
- *   → realised return for the user's holding of a named fund
- *   Formula: (current_nav - purchase_nav) / purchase_nav * 100
- *   current_value = units × latest_nav
- *   cost          = units × purchase_nav
- *
- * mode="portfolio_summary"
- *   → total portfolio value, cost basis, absolute gain, % return
- *   across all holdings
- *
- * mode="portfolio_ranking"
- *   → rank user's holdings by realised return %
- *
- * mode="list_funds"
- *   → list all funds in the database (name + id)
- *   Use this first when you need a fund_id or fund_name to pass to other modes.
+ * All non-mode fields are explicitly optional so the LLM can omit
+ * them when they're not needed (e.g. portfolio_ranking needs no fundName).
  *
  * Tables read: funds, fund_navs, holdings
  */
@@ -51,6 +28,7 @@ Modes:
 For "realised return" or "how much have I made" questions → use holding_return or portfolio_summary.
 For "fund return" or "NAV change" questions without holdings context → use fund_return.
 For "which fund is best" questions about the user's own money → use portfolio_ranking.
+For portfolio_ranking, portfolio_summary, list_funds → do NOT pass fundName, startDate, or endDate.
 `.trim(),
 
   inputSchema: z.object({
@@ -62,9 +40,15 @@ For "which fund is best" questions about the user's own money → use portfolio_
       "portfolio_summary",
       "portfolio_ranking",
     ]),
-    fundName:  z.string().optional().describe("Fund name (partial match OK). Used in fund_return and holding_return."),
-    startDate: z.string().optional().describe("ISO date YYYY-MM-DD. Used in fund_return and fund_return_ranking."),
-    endDate:   z.string().optional().describe("ISO date YYYY-MM-DD. Used in fund_return and fund_return_ranking. Defaults to today."),
+    fundName:  z.string().optional().describe(
+      "Fund name (partial match OK). Required for fund_return and holding_return only. Omit for portfolio_ranking, portfolio_summary, list_funds."
+    ),
+    startDate: z.string().optional().describe(
+      "ISO date YYYY-MM-DD. Required for fund_return and fund_return_ranking only."
+    ),
+    endDate:   z.string().optional().describe(
+      "ISO date YYYY-MM-DD. Used in fund_return and fund_return_ranking. Defaults to today. Omit for holding/portfolio modes."
+    ),
   }),
 
   execute: async ({ mode, fundName, startDate, endDate }) => {
@@ -84,7 +68,7 @@ For "which fund is best" questions about the user's own money → use portfolio_
 
       // ---- period return for one fund ----
       case "fund_return": {
-        if (!fundName) return { found: false, message: "fundName is required for fund_return." };
+        if (!fundName)  return { found: false, message: "fundName is required for fund_return." };
         if (!startDate) return { found: false, message: "startDate is required for fund_return." };
 
         const fund = await resolveFund(fundName);
@@ -98,14 +82,14 @@ For "which fund is best" questions about the user's own money → use portfolio_
 
         const returnPct = ((navEnd.nav - navStart.nav) / navStart.nav) * 100;
         return {
-          found: true,
-          fund_id:   fund.id,
-          fund_name: fund.name,
-          start_date:  navStart.date,
-          start_nav:   round2(navStart.nav),
-          end_date:    navEnd.date,
-          end_nav:     round2(navEnd.nav),
-          return_pct:  round2(returnPct),
+          found:      true,
+          fund_id:    fund.id,
+          fund_name:  fund.name,
+          start_date: navStart.date,
+          start_nav:  round2(navStart.nav),
+          end_date:   navEnd.date,
+          end_nav:    round2(navEnd.nav),
+          return_pct: round2(returnPct),
         };
       }
 
@@ -117,10 +101,10 @@ For "which fund is best" questions about the user's own money → use portfolio_
         if (!funds.rows.length) return { found: false, message: "No funds in database." };
 
         const results: Array<{
-          fund_name: string;
+          fund_name:  string;
           return_pct: number;
-          start_nav: number;
-          end_nav: number;
+          start_nav:  number;
+          end_nav:    number;
         }> = [];
 
         for (const f of funds.rows) {
@@ -153,23 +137,23 @@ For "which fund is best" questions about the user's own money → use portfolio_
         const latestNav = await closestNav(holding.fund_id, today);
         if (!latestNav) return { found: false, message: `No NAV data found for fund ${holding.fund_name}.` };
 
-        const cost          = holding.units * holding.purchase_nav;
-        const currentValue  = holding.units * latestNav.nav;
-        const gainAbs       = currentValue - cost;
-        const returnPct     = (gainAbs / cost) * 100;
+        const cost         = holding.units * holding.purchase_nav;
+        const currentValue = holding.units * latestNav.nav;
+        const gainAbs      = currentValue - cost;
+        const returnPct    = (gainAbs / cost) * 100;
 
         return {
-          found:          true,
-          fund_name:      holding.fund_name,
-          units:          holding.units,
-          purchase_date:  holding.purchase_date,
-          purchase_nav:   round2(holding.purchase_nav),
-          current_nav:    round2(latestNav.nav),
-          current_nav_date: latestNav.date,
-          cost_inr:       round2(cost),
+          found:             true,
+          fund_name:         holding.fund_name,
+          units:             holding.units,
+          purchase_date:     holding.purchase_date,
+          purchase_nav:      round2(holding.purchase_nav),
+          current_nav:       round2(latestNav.nav),
+          current_nav_date:  latestNav.date,
+          cost_inr:          round2(cost),
           current_value_inr: round2(currentValue),
-          gain_inr:       round2(gainAbs),
-          return_pct:     round2(returnPct),
+          gain_inr:          round2(gainAbs),
+          return_pct:        round2(returnPct),
         };
       }
 
@@ -188,10 +172,10 @@ For "which fund is best" questions about the user's own money → use portfolio_
             h.purchase_nav,
             ln.nav          AS current_nav,
             ln.nav_date     AS current_nav_date,
-            ROUND(h.units * h.purchase_nav, 2) AS cost_inr,
-            ROUND(h.units * ln.nav, 2)         AS current_value_inr,
-            ROUND(h.units * ln.nav - h.units * h.purchase_nav, 2) AS gain_inr,
-            ROUND(((ln.nav - h.purchase_nav) / NULLIF(h.purchase_nav, 0)) * 100, 2) AS return_pct
+            ROUND(h.units * h.purchase_nav, 2)                                        AS cost_inr,
+            ROUND(h.units * ln.nav, 2)                                                AS current_value_inr,
+            ROUND(h.units * ln.nav - h.units * h.purchase_nav, 2)                    AS gain_inr,
+            ROUND(((ln.nav - h.purchase_nav) / NULLIF(h.purchase_nav, 0)) * 100, 2)  AS return_pct
           FROM holdings h
           JOIN latest_nav ln ON ln.fund_id = h.fund_id
         `);
@@ -204,13 +188,13 @@ For "which fund is best" questions about the user's own money → use portfolio_
         const totalRet   = (totalGain / totalCost) * 100;
 
         return {
-          found: true,
+          found:    true,
           holdings: r.rows,
           summary: {
-            total_cost_inr:         round2(totalCost),
+            total_cost_inr:          round2(totalCost),
             total_current_value_inr: round2(totalValue),
-            total_gain_inr:         round2(totalGain),
-            total_return_pct:       round2(totalRet),
+            total_gain_inr:          round2(totalGain),
+            total_return_pct:        round2(totalRet),
           },
         };
       }
@@ -227,8 +211,8 @@ For "which fund is best" questions about the user's own money → use portfolio_
           SELECT
             h.fund_name,
             ROUND(((ln.nav - h.purchase_nav) / NULLIF(h.purchase_nav, 0)) * 100, 2) AS return_pct,
-            ROUND(h.units * ln.nav - h.units * h.purchase_nav, 2) AS gain_inr,
-            ROUND(h.units * ln.nav, 2) AS current_value_inr
+            ROUND(h.units * ln.nav - h.units * h.purchase_nav, 2)                   AS gain_inr,
+            ROUND(h.units * ln.nav, 2)                                               AS current_value_inr
           FROM holdings h
           JOIN latest_nav ln ON ln.fund_id = h.fund_id
           ORDER BY return_pct DESC
@@ -241,7 +225,7 @@ For "which fund is best" questions about the user's own money → use portfolio_
   },
 });
 
-// ---- helpers ----
+// ── helpers ───────────────────────────────────────────────────────────────────
 
 async function resolveFund(name: string) {
   const r = await db.query(
@@ -257,7 +241,7 @@ async function resolveHolding(name: string) {
             h.purchase_date::text AS purchase_date, h.purchase_nav::float AS purchase_nav
      FROM holdings h
      WHERE h.fund_name ILIKE $1
-     ORDER BY h.id
+     ORDER BY h.units DESC
      LIMIT 1`,
     [`%${name}%`]
   );
