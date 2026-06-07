@@ -1,318 +1,242 @@
-# Tara Finance Research Agent
+# Tara Finance Agent
 
-AI-powered finance research agent built using Mastra, PostgreSQL, Express, and Groq.
-
-Tara answers natural-language questions about:
-
-- Transaction spending
-- Merchant analytics
-- Category analytics
-- Recurring subscriptions
-- Portfolio holdings
-- Fund performance
-- Asset allocation
+A personal finance research agent built with Mastra SDK, Postgres (Neon), and Google Gemini 2.5 Flash.
+Tara answers natural-language questions about spending, transactions, and mutual fund portfolios by querying a real database — never guessing or hallucinating figures.
 
 ---
 
-# Architecture
+## Deployed URL
 
-![Architecture](docs/screenshots/architecture.png)
-
-Tara uses an LLM for intent understanding and deterministic analytics tools for financial calculations.
-
----
-
-# Features
-
-## Transaction Analytics
-
-- Merchant spend analysis
-- Category spend analysis
-- Transaction history lookup
-- Spend summaries
-- Recurring subscription detection
-
-## Portfolio Analytics
-
-- Holdings analysis
-- Portfolio summary
-- Asset allocation
-- Fund performance lookup
-
-## AI Agent
-
-- Natural language interface
-- Tool-based reasoning
-- Structured financial analytics
-- Multi-dataset support
-
----
-
-# Database Schema
-
-![Database Schema](docs/screenshots/database-schema.png)
-
-The system stores:
-
-- Transactions
-- Funds
-- Fund NAV history
-- Holdings
-
----
-
-# Technology Stack
-
-- TypeScript
-- Node.js
-- Express
-- PostgreSQL
-- Mastra
-- Groq
-- Zod
-
----
-
-# Project Structure
-
-```text
-.
-├── src/
-│   ├── agents/
-│   ├── db/
-│   ├── services/
-│   ├── tools/
-│   └── server.ts
-│
-├── scripts/
-│   ├── ingest.ts
-│   └── chat.ts
-│
-├── data/
-│   └── sample_a/
-│
-├── docs/
-│   └── screenshots/
-│
-├── README.md
-├── DESIGN.md
-├── eval-report.json
-└── .env.example
+```
+POST https://tara-finance-agent-me01.onrender.com/ask
 ```
 
 ---
 
-# Setup
+## Stack
 
-## 1. Install
+| Layer | Technology |
+|---|---|
+| Agent framework | [Mastra SDK](https://mastra.ai) (TypeScript) |
+| LLM | Google Gemini 2.5 Flash (`gemini-2.5-flash`) via `@ai-sdk/google` |
+| Database | PostgreSQL 16 on [Neon](https://neon.tech) (free tier) |
+| Server | Express 5 — `POST /ask` |
+| Runtime | Node.js ≥ 22, `tsx` |
+| Deployment | [Render](https://render.com) |
+
+---
+
+## Local Setup
+
+### Prerequisites
+
+- Node.js ≥ 22
+- A PostgreSQL database (local or [Neon](https://neon.tech) free tier)
+- A [Google AI Studio](https://aistudio.google.com) API key (free, no credit card)
+
+### 1. Clone and install
 
 ```bash
+git clone https://github.com/guptapriya15/tara-finance-agent.git
+cd tara-finance-agent
 npm install
 ```
 
-## 2. Configure Environment
+### 2. Configure environment
 
-Create a `.env` file in the repo root:
+```bash
+cp .env.example .env
+```
 
-```env
-# Required
-DATABASE_URL=postgres://USER:PASSWORD@HOST:5432/DB_NAME
-GROQ_API_KEY=your_groq_key
+Edit `.env`:
 
-# Optional
+```bash
+DATABASE_URL=postgresql://user:password@host/provue_tara?sslmode=require
+GOOGLE_GENERATIVE_AI_API_KEY=your_google_ai_studio_key
 DATA_DIR=./data/sample_a
 PORT=3000
 ```
 
-## 3. Create Database (optional)
+### 3. Reset database and ingest data
 
-If you don’t already have Postgres set up, create the database referenced in `DATABASE_URL`.
+```bash
+# Creates schema, clears old data, ingests from DATA_DIR, verifies counts
+npx tsx scripts/reset.ts
 
-Example:
+# Expected output:
+# transactions  1500
+# funds            8
+# fund_navs      192
+# holdings         8
+# request_traces   0
+```
+
+To ingest a different snapshot:
+
+```bash
+DATA_DIR=./data/sample_b npx tsx scripts/reset.ts
+DATA_DIR=./data/sample_c npx tsx scripts/reset.ts
+```
+
+### 4. Start the server
+
+```bash
+npm start
+# or for development with auto-reload:
+npm run dev
+```
+
+Server starts at `http://localhost:3000`.
+
+---
+
+## API
+
+### `POST /ask`
+
+```bash
+curl -X POST http://localhost:3000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question": "How much did I spend on Swiggy?"}'
+```
+
+**Request:**
+```json
+{ "question": "How much did I spend on Swiggy?" }
+```
+
+**Response:**
+```json
+{
+  "answer": "You spent a total of ₹49,311.02 on Swiggy across all recorded transactions.",
+  "request_id": "133a2154-3e62-4cce-8cc3-0047f7b1336f",
+  "latency_ms": 1240
+}
+```
+
+### `GET /health`
+
+```bash
+curl http://localhost:3000/health
+# {"status":"ok","ts":"2026-06-07T10:00:00.000Z"}
+```
+
+---
+
+## Running Evals
+
+```bash
+# Run all 20 questions with pass/fail output
+npx tsx evals/run-evals.ts
+
+# Run a subset by tag
+npx tsx evals/run-evals.ts --tag=no_data
+npx tsx evals/run-evals.ts --tag=multi_step
+npx tsx evals/run-evals.ts --tag=portfolio
+```
+
+Results are saved to `evals/report.json`.
+
+---
+
+## Project Structure
+
+```
+tara-finance-agent/
+├── data/
+│   ├── sample_a/          # transactions.json, funds.json, holdings.json
+│   ├── sample_b/
+│   └── sample_c/
+├── evals/
+│   ├── questions.json     # 20 eval questions with expected answer shapes
+│   ├── run-evals.ts       # eval runner with pass/fail logic
+│   └── report.json        # generated — gitignored
+├── logs/
+│   └── requests.log       # JSONL trace log — gitignored
+├── scripts/
+│   ├── reset.ts           # drop + recreate schema + ingest + verify
+│   ├── create-schema.ts   # schema only
+│   └── ingest.ts          # ingest only
+├── src/
+│   ├── db/
+│   │   ├── client.ts      # pg Pool
+│   │   └── schema.sql     # table definitions and indexes
+│   ├── mastra/
+│   │   ├── agents/
+│   │   │   └── tara-agent.ts
+│   │   └── tools/
+│   │       ├── index.ts
+│   │       ├── queryTransactions.ts
+│   │       └── portfolioAnalytics.ts
+│   ├── services/
+│   │   ├── logger.ts
+│   │   ├── merchantNormalizer.ts
+│   │   └── subscriptionDetector.ts
+│   ├── utils/
+│   │   └── retry.ts
+│   └── server.ts
+├── .env.example
+├── package.json
+├── tsconfig.json
+├── README.md
+└── DESIGN.md
+```
+
+---
+
+## Observability
+
+Every `POST /ask` request is logged two ways:
+
+1. **JSONL file** — `logs/requests.log`, one line per request
+2. **Postgres table** — `request_traces`, queryable via SQL
+
+Each trace captures: `request_id`, `question`, `tools_called`, `tables_read`, `latency_ms`, `status`, `error_msg`.
+
+To inspect a failed request:
 
 ```sql
-CREATE DATABASE provue_tara;
+SELECT request_id, question, error_msg, latency_ms
+FROM request_traces
+WHERE status = 'failed'
+ORDER BY created_at DESC
+LIMIT 10;
 ```
 
-## 4. Ingest Dataset
+To see which tools were called for a question:
 
-Ingest one of the provided snapshots (or your own snapshot folder):
-
-```bash
-# Default: DATA_DIR=./data/sample_a
-npx tsx scripts/ingest.ts
-
-# Or set DATA_DIR to another folder, e.g.
-# set DATA_DIR=./data/sample_b
-# npx tsx scripts/ingest.ts
-```
-
----
-
-# Dataset Ingestion
-
-![Dataset Ingestion](docs/screenshots/ingestion.png)
-
-The ingestion pipeline:
-
-1. Loads transactions
-2. Normalizes merchants
-3. Loads fund NAV history
-4. Loads holdings
-5. Stores structured data in PostgreSQL
-
----
-
-# Running the Server
-
-```bash
-npm run server
-```
-
-Server:
-
-```text
-Server running on port 3000
+```sql
+SELECT question, tools_called, tables_read, latency_ms
+FROM request_traces
+WHERE status = 'success'
+ORDER BY created_at DESC
+LIMIT 5;
 ```
 
 ---
 
-# Interactive CLI Demo
+## Environment Variables
 
-Start:
-
-```bash
-npm run chat
-```
-
-The CLI sends questions directly to the `/ask` endpoint and provides a simple conversational interface.
-
----
-
-# Example Conversation
-
-![CLI Demo](docs/screenshots/api-query.png)
-
-Example questions:
-
-- How much did I spend on Swiggy?
-- What is my total food spend?
-- Which category had the highest spend?
-- What are my recurring subscriptions?
+| Variable | Required | Description |
+|---|---|---|
+| `DATABASE_URL` | ✅ | PostgreSQL connection string (include `?sslmode=require` for Neon) |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | ✅ | Google AI Studio key — get free at [aistudio.google.com](https://aistudio.google.com) |
+| `DATA_DIR` | ✅ | Path to snapshot folder, e.g. `./data/sample_a` |
+| `PORT` | ❌ | Server port, defaults to `3000` |
 
 ---
 
-# API
 
-## Endpoint
 
-```http
-POST /ask
-```
+## Sample Questions Tara Can Answer
 
-## Request
-
-```json
-{
-  "question": "How much did I spend on Swiggy?"
-}
-```
-
-## Response
-
-```json
-{
-  "answer": "You spent ₹49,311.02 on Swiggy."
-}
-```
-
----
-
-# Running Against New Datasets
-
-The ingestion pipeline is dataset agnostic.
-
-Update:
-
-```env
-DATA_DIR=./data/new_dataset
-```
-
-Expected structure:
-
-```text
-new_dataset/
-├── transactions.json
-├── funds.json
-└── holdings.json
-```
-
-Re-ingest:
-
-```bash
-npx tsx scripts/ingest.ts
-```
-
-Start server:
-
-```bash
-npm run server
-```
-
-All queries will now operate on the newly loaded dataset.
-
----
-
-# Evaluation
-
-Run:
-
-```bash
-npm run eval
-```
-
-Results are generated in:
-
-```text
-eval-report.json
-```
-
----
-
-# Evaluation Results
-
-![Evaluation Results](docs/screenshots/evaluation-results.png)
-
-The evaluation suite validates:
-
-- Merchant spending
-- Category analysis
-- Recurring subscriptions
-- Portfolio analytics
-- Fund performance
-
----
-
-# Logs & Observability
-
-![Logs](docs/screenshots/logs.png)
-
-Logs include:
-
-- User questions
-- Tool selection
-- Tool outputs
-- Errors
-- Evaluation runs
-
-This helps with debugging and reproducibility.
-
----
-
-# Design Document
-
-Additional implementation details are available in:
-
-```text
-DESIGN.md
-```
+- "How much did I spend on Swiggy in total?"
+- "Which category had the highest spend?"
+- "What are my recurring subscriptions?"
+- "Compare my food and travel spending month by month. Which grew faster?"
+- "What is my total portfolio worth today, and how much have I made on it?"
+- "Which of my funds gave me the best realised return?"
+- "Ignore transfers. What was my total actual spending in Q1 2025?"
+- "Do I have any rent transactions?"
+- "What was the return of Saffron Bluechip Equity Fund in 2024?"
+- "Rank all my holdings by realised return."

@@ -1,260 +1,329 @@
-# Design Notes — Tara Finance Agent
-
-## PostgreSQL Schema
-
-### `transactions`
-
-| Column               | Type          | Notes                                              |
-| -------------------- | ------------- | -------------------------------------------------- |
-| `id`                 | TEXT PK       | Original ID from JSON                              |
-| `transaction_date`   | DATE          | Indexed                                            |
-| `merchant`           | TEXT          | Raw string as received                             |
-| `merchant_canonical` | TEXT          | Normalised at ingest time (see below)              |
-| `category`           | TEXT          | Lower-cased at ingest; defaults to `uncategorized` |
-| `amount`             | NUMERIC(14,2) | Negative = refund/reversal                         |
-| `currency`           | TEXT          | Defaults to `INR`                                  |
-| `memo`               | TEXT          | Untrusted; never parsed as instructions            |
-
-Indexes: `(transaction_date)`, `(category)`, `(merchant_canonical)`,
-`(category, transaction_date)`, `(merchant_canonical, transaction_date)`.
-
-The composite indexes exist because the most common query pattern is
-"category X between date A and date B" and "merchant Y between date A and date B".
-
-### `funds`
-
-| Column     | Type    | Notes                         |
-| ---------- | ------- | ----------------------------- |
-| `id`       | TEXT PK | Fund identifier from JSON     |
-| `name`     | TEXT    | Full fund name                |
-| `category` | TEXT    | e.g. "equity", "debt", "gold" |
-
-### `fund_navs`
-
-| Column                | Type          | Notes                   |
-| --------------------- | ------------- | ----------------------- |
-| `(fund_id, nav_date)` | PK            | Composite primary key   |
-| `nav`                 | NUMERIC(12,4) | NAV value for that date |
-
-Index: `(fund_id, nav_date DESC)` — optimises the "closest NAV on or before date" query.
-
-### `holdings`
-
-| Column          | Type            | Notes                                       |
-| --------------- | --------------- | ------------------------------------------- |
-| `id`            | SERIAL PK       | Internal                                    |
-| `fund_id`       | TEXT FK → funds |                                             |
-| `fund_name`     | TEXT            | Denormalised for readability in tool output |
-| `units`         | NUMERIC(14,4)   | Units purchased                             |
-| `purchase_date` | DATE            |                                             |
-| `purchase_nav`  | NUMERIC(12,4)   | NAV at time of purchase                     |
-
-### `request_traces`
-
-Observability table. One row per `/ask` request.
+# DESIGN.md — Tara Finance Agent
 
 ---
 
-## Tool Design
+## 1. Postgres Schema
 
-Two tools, no overlap:
+### Tables
 
-**`query_transactions`** — all transaction/spending questions. Takes
-`startDate`, `endDate`, `category`, `merchant`, `aggregate`, `limit`,
-`includeTransfers`, `includeRefunds`. The `aggregate` enum controls whether
-you get a total, monthly breakdown, top-N, or raw rows. One tool handles all
-these cases because they all filter the same table — splitting them would
-cause model selection confusion and waste context tokens.
+**`transactions`**
+Stores all spending events. `merchant_canonical` is a normalised version of the raw merchant string, computed at ingest time by `merchantNormalizer.ts`. This is what tools query — not the raw `merchant` field — so all Swiggy variants (`SWIGGY BANGALORE`, `Swiggy Instamart`, `SWIGGY*ORDER`) match a single `ILIKE '%swiggy%'` query.
 
-**`portfolio_analytics`** — all fund and holding questions. Mode enum:
-`list_funds`, `fund_return`, `fund_return_ranking`, `holding_return`,
-`portfolio_summary`, `portfolio_ranking`. Fund resolution is fuzzy (ILIKE)
-so the model never needs to know exact fund IDs.
+```sql
+id                TEXT PRIMARY KEY
+transaction_date  DATE NOT NULL
+merchant          TEXT NOT NULL        -- raw string from source
+merchant_canonical TEXT NOT NULL       -- normalised, used for querying
+category          TEXT DEFAULT 'uncategorized'
+amount            NUMERIC(14,2)        -- negative = refund/reversal
+currency          TEXT DEFAULT 'INR'
+memo              TEXT
+```
 
-Deliberately excluded: `finance_analytics` (superceded by `query_transactions`),
-`aggregate_spend` (merged into `query_transactions`), `searchMerchant`
-(merchant fuzzy search is built into `query_transactions`),
-`detectSubscriptions` (merged into `query_transactions` as aggregate="recurring").
+**`funds`**
+Market data — independent of what the user owns.
+
+```sql
+id        TEXT PRIMARY KEY
+name      TEXT NOT NULL
+category  TEXT NOT NULL
+```
+
+**`fund_navs`**
+Monthly NAV history per fund. Composite PK prevents duplicates on re-ingest.
+
+```sql
+fund_id   TEXT REFERENCES funds(id) ON DELETE CASCADE
+nav_date  DATE NOT NULL
+nav       NUMERIC(12,4)
+PRIMARY KEY (fund_id, nav_date)
+```
+
+**`holdings`**
+What the user actually owns. Joins to `funds` on `fund_id`. `purchase_nav` and `units` are the inputs to realised return calculations.
+
+```sql
+id            SERIAL PRIMARY KEY
+fund_id       TEXT REFERENCES funds(id)
+fund_name     TEXT NOT NULL
+units         NUMERIC(14,4)
+purchase_date DATE
+purchase_nav  NUMERIC(12,4)
+```
+
+**`request_traces`**
+Observability table. Every `/ask` request writes a row here regardless of success or failure.
+
+```sql
+request_id   TEXT PRIMARY KEY
+question     TEXT
+tools_called JSONB
+tables_read  TEXT[]
+status       TEXT       -- 'success' | 'failed'
+error_msg    TEXT
+latency_ms   INTEGER
+created_at   TIMESTAMPTZ
+```
+
+### Indexes
+
+```sql
+-- transactions — the most-queried table
+idx_txn_date               ON transactions(transaction_date)
+idx_txn_category           ON transactions(category)
+idx_txn_merchant_canonical ON transactions(merchant_canonical)
+idx_txn_cat_date           ON transactions(category, transaction_date)
+idx_txn_merchant_date      ON transactions(merchant_canonical, transaction_date)
+
+-- fund_navs — always queried by fund + date descending
+idx_fund_navs_lookup       ON fund_navs(fund_id, nav_date DESC)
+
+-- funds, holdings
+idx_funds_name             ON funds(name)
+idx_holdings_fund          ON holdings(fund_id)
+```
+
+The composite indexes on `transactions` exist because the two most common query patterns are: filter by category + date range, and filter by merchant + date range. Without them, every category/merchant query would be a full table scan on 1,500+ rows — acceptable now but expensive at scale.
 
 ---
 
-## Formulas
+## 2. Tool Design
 
-**Net spend (refund-aware):**
+### Why two tools instead of many narrow ones
+
+The brief explicitly warns against narrow tools: "a single `query_transactions({ filter, aggregate })` will beat four narrow tools on both token cost and selection accuracy." We followed this. Every transaction question goes through one tool; every portfolio question goes through another.
+
+Having fewer tools in the model's context means:
+- The system prompt is shorter (fewer tokens per request)
+- The model has less ambiguity about which tool to call
+- Fewer places for tool selection to go wrong
+
+### `query_transactions`
+
+Handles all spending questions via an `aggregate` enum parameter:
+
+| aggregate | SQL | Use case |
+|---|---|---|
+| `total` | `SUM(amount)` | "How much did I spend on X?" |
+| `by_month` | `GROUP BY month` | Month-over-month comparisons |
+| `by_category` | `GROUP BY category` | Category breakdown |
+| `by_merchant` | `GROUP BY merchant_canonical` | Merchant breakdown |
+| `top_merchants` | `GROUP BY ... LIMIT N` | "Top 5 merchants" |
+| `top_categories` | `GROUP BY ... LIMIT N` | "Top categories" |
+| `recurring` | JS detection post-query | Subscription detection |
+| `none` | Raw rows | "Show me transactions" |
+
+Key design decisions:
+- `includeTransfers=false` by default — self-transfers are excluded unless explicitly requested
+- `includeRefunds=false` by default — only `amount > 0` rows, so SUM gives gross spend
+- `includeRefunds=true` — all rows including negatives, so SUM gives net spend after refunds
+- All boolean/integer fields use `z.coerce` so the LLM can pass `"true"` or `"10"` as strings without validation failures — Gemini and smaller models frequently stringify these
+
+### `portfolio_analytics`
+
+Handles all fund and holdings questions via a `mode` enum:
+
+| mode | Data source | Use case |
+|---|---|---|
+| `list_funds` | `funds` | Discover available fund names |
+| `fund_return` | `fund_navs` | NAV change between two dates |
+| `fund_return_ranking` | `fund_navs` | Rank all funds by period return |
+| `holding_return` | `holdings + fund_navs` | User's realised return on one holding |
+| `portfolio_summary` | `holdings + fund_navs` | Total portfolio value and gain |
+| `portfolio_ranking` | `holdings + fund_navs` | All holdings ranked by return |
+
+The `fundName`, `startDate`, and `endDate` fields are explicitly optional with descriptions telling the model to omit them for modes that don't need them (`portfolio_ranking`, `portfolio_summary`, `list_funds`). Without this, smaller models pass empty strings or trigger Zod missing-property errors.
+
+---
+
+## 3. Formulas
+
+### Net spend (transactions)
 
 ```
 net_spend = SUM(amount)
 ```
 
-Because refunds are stored as negative `amount`, a plain SUM correctly reduces
-the total. We never subtract refunds as a separate step — it is automatic.
+`amount` is negative for refunds. SUM naturally handles net spend. We never filter out negatives unless `includeRefunds=false`, in which case the `WHERE amount > 0` clause gives gross spend only.
 
-**Gross spend (positive transactions only):**
-
-```
-gross_spend = SUM(amount) WHERE amount > 0
-```
-
-**Merchant matching:**
-At ingest: `merchant_canonical = normalizeMerchant(raw_merchant)`
-
-- Lower-case, strip punctuation → spaces
-- Remove noise tokens (upi, neft, imps, payment, transfer, bank, …)
-- Remove pure-numeric tokens
-- Join remaining tokens with space
-
-At query time: `merchant_canonical ILIKE '%<user_term>%'`
-
-This means "swiggy instamart", "swiggy bangalore", and "SWIGGY\*ORDER" all
-normalise to strings containing "swiggy" and are matched by `ILIKE '%swiggy%'`.
-
-**Recurring detection:**
-
-1. Group transactions by `merchant_canonical`, collect sorted dates.
-2. Compute gaps between consecutive dates (in days).
-3. Compute median gap and standard deviation.
-4. Classify as recurring if stddev < 12 days AND median gap falls in:
-   - 5–9 days (weekly), ≥3 occurrences
-   - 12–16 days (biweekly), ≥3 occurrences
-   - 25–35 days (monthly), ≥3 occurrences
-   - 85–95 days (quarterly), ≥2 occurrences
-
-We use median (not mean) to be robust against irregular one-off purchases
-from the same merchant.
-
-**Fund period return:**
+### Merchant matching
 
 ```
-return_pct = (nav_end - nav_start) / nav_start × 100
+merchant_canonical = normalizeMerchant(raw_merchant)
 ```
 
-Where `nav_start` = closest NAV on or before `startDate`,
-and `nav_end` = closest NAV on or before `endDate`.
+`normalizeMerchant` (in `services/merchantNormalizer.ts`):
+1. Lowercase everything
+2. Replace non-alphanumeric characters with spaces
+3. Remove payment infrastructure noise tokens: `upi`, `neft`, `imps`, `payment`, `transfer`, `bank`, etc.
+4. Remove pure-numeric tokens (transaction IDs, phone numbers)
+5. Remove single-character tokens
+6. Join remaining tokens with a single space
+7. Fall back to `"unknown"` if nothing survives
 
-**Holding realised return:**
+Result: `"SWIGGY BANGALORE"`, `"Swiggy Instamart"`, and `"SWIGGY*ORDER"` all normalise to strings containing `"swiggy"`, so `ILIKE '%swiggy%'` on `merchant_canonical` matches all variants. We intentionally do **not** truncate to the first token — `"swiggy instamart"` and `"swiggy bangalore"` both need to match a query for "swiggy".
+
+### Recurring detection
+
+```
+isRecurring(dates) → boolean
+```
+
+In `services/subscriptionDetector.ts`:
+1. Sort transaction dates ascending
+2. Compute gaps in days between consecutive transactions
+3. Calculate median gap and standard deviation of gaps
+4. If stddev > 12 days: not recurring (too irregular)
+5. Match against patterns:
+   - Weekly: median 5–9 days, ≥ 3 occurrences
+   - Biweekly: median 12–16 days, ≥ 3 occurrences
+   - Monthly: median 25–35 days, ≥ 3 occurrences
+   - Quarterly: median 85–95 days, ≥ 2 occurrences
+
+We use median rather than mean to be robust against one-off large gaps (e.g. a merchant that's usually monthly but was skipped once). stddev check filters out merchants that appear many times but irregularly (e.g. grocery stores).
+
+### Fund period return
+
+```
+return_pct = (end_nav - start_nav) / start_nav × 100
+```
+
+`start_nav` and `end_nav` are the closest available NAV on or before the requested dates, found via:
+
+```sql
+SELECT nav FROM fund_navs
+WHERE fund_id = $1 AND nav_date <= $2
+ORDER BY nav_date DESC LIMIT 1
+```
+
+This handles weekends and holidays — if you ask for a Monday NAV and only Saturday data exists, you get Saturday's NAV.
+
+### Holding realised return
 
 ```
 cost          = units × purchase_nav
 current_value = units × latest_nav
-gain_abs      = current_value − cost
-return_pct    = gain_abs / cost × 100
+gain_inr      = current_value - cost
+return_pct    = gain_inr / cost × 100
 ```
 
-`latest_nav` = the most recent NAV for the fund in `fund_navs`.
-
-The distinction between "fund period return" and "holding realised return" is
-explicit: fund return measures NAV movement between two dates regardless of
-who owns it; holding return measures what the user specifically made based on
-their purchase price and current units.
+`latest_nav` is the most recent NAV available in `fund_navs` for the fund. This is **different** from fund period return — it uses the user's actual purchase price, not an arbitrary start date NAV.
 
 ---
 
-## Grounding Guarantee
+## 4. Grounding guarantee
 
-The agent system prompt states that every financial figure must come from a tool.
-The tool always returns a `found: boolean` field. If `found: false`, the tool
-returns a human-readable `message` and the agent reports "no data" honestly.
+Every number in Tara's answers comes from a tool result. The agent instructions state:
 
-All arithmetic (SUM, ROUND, percentage calculations) is done in SQL or in the
-tool's TypeScript `execute` function — never by the LLM in prose.
+> "Always call a tool before answering. Never state a number without tool evidence. Never invent or estimate figures — all arithmetic is done by the tool (SQL)."
 
----
+The tools do all arithmetic in SQL (`ROUND(SUM(amount), 2)`, `ROUND(((nav_end - nav_start) / nav_start) * 100, 2)`). The model never receives raw rows and performs arithmetic — it receives a pre-computed result and narrates it.
 
-## Date Interpretation
-
-Relative dates are resolved by the agent using today's date (injected into the
-system prompt). Conventions:
-
-| User phrase     | Interpretation                               |
-| --------------- | -------------------------------------------- |
-| "last month"    | Full calendar month before today             |
-| "this month"    | Current calendar month to today              |
-| "Q1 2025"       | 2025-01-01 to 2025-03-31                     |
-| "in March"      | Most recent March (2025-03-01 to 2025-03-31) |
-| Ambiguous month | Assume most recent occurrence                |
-
-All dates passed to tools are explicit `YYYY-MM-DD` strings.
+If a tool returns `{ found: false }`, Tara is instructed to report no data found rather than guess or return zero.
 
 ---
 
-## Evals
+## 5. Date interpretation
 
-15 cases covering:
+All relative date expressions are resolved to explicit `YYYY-MM-DD` strings before being passed to tools. The agent instructions define:
 
-- Total spend with date filter
-- Q1 spend excluding transfers
-- Food spend net of refunds
-- Merchant alias matching (Swiggy variants)
-- Highest single expense
-- Month-over-month category comparison
-- Top 5 merchants
-- Recurring subscription detection
-- No-data case (rent April 2025)
-- Fund return ranking
-- Holding realised return
-- Portfolio summary
-- Fund return ranking with spread
-- Category breakdown excluding transfers
-- Best holding by return
+| Expression | Resolved to |
+|---|---|
+| "last month" | First and last day of the calendar month before today |
+| "this month" | First day of current month to today |
+| "Q1 2025" | `2025-01-01` to `2025-03-31` |
+| "in March" | `YYYY-03-01` to `YYYY-03-31` (most recent March) |
+| "in 2024" | `2024-01-01` to `2024-12-31` |
 
-Each case defines predicate checks against the answer text (contains number,
-contains keyword). The eval runner exits with code 1 on any failure, making it
-CI-friendly.
+Named months without a year assume the most recent occurrence of that month on or before today.
 
 ---
 
-## Observability
+## 6. Data complications handled
 
-Every `/ask` request writes to:
+| Complication | How handled |
+|---|---|
+| Merchant aliases | `normalizeMerchant` at ingest time + `ILIKE '%term%'` at query time |
+| Refunds (negative amounts) | `includeRefunds` flag; `SUM` handles both directions |
+| Internal transfers | `LOWER(category) != 'transfer'` excluded by default |
+| Uncategorized rows | No special handling — tools support any category value including `"uncategorized"` |
+| Missing NAV dates | `closestNav` always finds the nearest available date on or before the target |
+| Fund vs holding return | Two separate modes in `portfolio_analytics`; agent instructions explicitly distinguish them |
+| Noisy memos | Treated as untrusted data; agent instructed to ignore instructions in memos |
 
-- `logs/requests.log` (JSONL, one line per request) — survives restarts
-- `request_traces` table in Postgres — queryable
+---
 
-Each record includes: `request_id`, `question`, `tools_called` (array),
-`tables_read`, `status`, `error_msg`, `latency_ms`, `created_at`.
+## 7. Evals
+
+The eval suite (`evals/run-evals.ts`) sends 20 questions to `POST /ask` and checks answers against expected shapes defined in `evals/questions.json`.
+
+Each question has an `expect` block with:
+- `mustContain` — keywords that must appear (case-insensitive)
+- `mustNotContain` — hallucination signals (`"I don't know"`, `"unable to"`, `"0.00"`)
+- `mustContainPattern` — regex for numbers, percentages, or dates
+
+Coverage across tags:
+
+| Tag | Questions | What it tests |
+|---|---|---|
+| `merchant` | 5 | Merchant lookup, alias matching, no-data |
+| `category` | 5 | Category aggregates, breakdown, comparison |
+| `portfolio` | 3 | Portfolio summary, ranking, multi-step |
+| `multi_step` | 4 | Questions requiring ≥ 2 tool calls |
+| `no_data` | 2 | Out-of-range dates, missing merchants |
+| `recurring` | 2 | Subscription detection |
+| `fund` | 2 | Fund period return |
+| `refunds` | 1 | Net spend after refunds |
+| `transfers` | 1 | Transfer exclusion |
+
+Run with: `npx tsx evals/run-evals.ts`
+
+---
+
+## 8. Observability
+
+Each request writes to two places:
+
+1. **`logs/requests.log`** — JSONL, one line per request, never throws (logging failures are caught silently so they can't crash the server)
+2. **`request_traces` table** — same data in Postgres, queryable with SQL
+
+Fields captured: `request_id`, `question`, `tools_called` (array with tool name, input, tables, duration), `tables_read`, `status`, `error_msg`, `latency_ms`, `created_at`.
 
 To inspect a failed run:
-
-```bash
-tail -20 logs/requests.log | jq 'select(.status == "failed")'
+```sql
+SELECT request_id, question, error_msg, latency_ms
+FROM request_traces
+WHERE status = 'failed'
+ORDER BY created_at DESC LIMIT 5;
 ```
 
----
-
-## Async Milestone
-
-Not implemented. All tools run synchronously. Given that all tools query a
-local/hosted Postgres and return in <500 ms, synchronous execution is
-appropriate. The DESIGN.md states this explicitly so the grader understands
-it was a deliberate choice.
-
-If implemented: the `portfolio_summary` tool (which joins holdings × fund_navs
-across 8 funds) would be the most natural candidate for async processing.
-The pattern would be: tool returns `{job_id, status: "running"}` immediately,
-BullMQ worker computes the join and writes to a `job_results` Postgres table,
-and a `/job/:id` endpoint or webhook feeds the result back to the agent.
+Tool inputs are logged but API keys and secrets are never passed through tools (they live only in `db/client.ts` and the env), so there is no risk of secret leakage in traces.
 
 ---
 
-## Failure Modes and What I'd Fix Next
+## 9. Async milestone
 
-1. **LLM tool selection errors** — the model may call a tool with malformed/edge-case arguments. Fix: strengthen tool input schemas (already adding coercions) and add a tool-argument sanitizer layer.
+Not implemented. All tools run synchronously within the `/ask` request-response cycle. The decision was deliberate:
 
-2. **Merchant normalisation edge cases** — the current normaliser works well for
-   UPI-style and display-name merchants, but very short merchant names (e.g.
-   "OLA") could collide with noise tokens. Fix: lower the noise-token filter
-   threshold or use a character n-gram index.
+- All tools are Postgres queries — typical latency is 20–200ms, well within acceptable synchronous bounds
+- The only genuinely slow operation is `portfolio_analytics` with `mode="fund_return_ranking"`, which loops over 8 funds making serial DB calls (~8 × 50ms = ~400ms)
+- This is fast enough that the user experience is not meaningfully worse than an async approach
+- Implementing a background worker (BullMQ + job polling) would add ~200 lines of infrastructure and a new failure mode (job loss on restart) without a proportional user benefit at this data scale
 
-3. **Fund name fuzzy match collisions** — if two funds share a word (e.g.
-   "Saffron Growth Fund" and "Saffron Bluechip Fund"), `ILIKE '%saffron%'`
-   returns the first match. Fix: rank matches by name length similarity or
-   use pg_trgm for trigram similarity.
+With more time: the `fund_return_ranking` mode is the right candidate for async — it could fan out 8 parallel DB calls and return a `job_id` immediately, with the result fed back as a synthetic tool completion.
 
-4. **Category normalisation** — the ingest lower-cases categories but the
-   hidden snapshot may use different strings. Fix: add a category synonym
-   table that maps "Food & Dining" → "food", "Restaurants" → "food", etc.,
-   populated from what's found in the data.
+---
 
-5. **No pagination** — `query_transactions` with `aggregate="none"` returns
-   up to 100 rows. For a 1,500-transaction dataset this is fine; at scale,
-   cursor-based pagination would be needed.
+## 10. Deployment
+
+- **Server:** [Render](https://render.com) — Node.js Web Service, free tier, auto-deploys from GitHub on every push to `main`
+- **Database:** [Neon](https://neon.tech) — serverless Postgres, free tier (0.5 GB storage)
+
+**Known limitations:**
+- Render free tier spins down after 15 minutes of inactivity. Cold start is 30–60 seconds; subsequent requests are fast. Acceptable for a grading demo, not for production.
+- Neon serverless Postgres also has a cold start on first connection after inactivity (~1s). Both wake automatically on the first request.
+- Render free tier: 750 compute hours/month — enough for one always-on service with no credit card required.
+- No persistent filesystem on Render — logs are written to stdout/stderr in addition to Postgres `request_traces`. The JSONL log file is ephemeral and resets on redeploy.
+
+---
+
